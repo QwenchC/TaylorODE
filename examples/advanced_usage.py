@@ -34,7 +34,7 @@ def run_advanced_examples(save_results=False):
     
     # 设置结果保存目录
     if save_results:
-        result_dir = "result/advanced_usage"
+        result_dir = "results/advanced_usage"
         ensure_dir(result_dir)
         # 捕获控制台输出
         old_stdout = sys.stdout

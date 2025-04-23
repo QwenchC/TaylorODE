@@ -34,7 +34,7 @@ def ensure_dir(directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-ensure_dir("result/taylor_evaluation")
+ensure_dir("results/taylor_evaluation")
 
 def evaluate_taylor_order_effects():
     """评估不同阶数泰勒展开的效果"""
@@ -105,7 +105,7 @@ def evaluate_taylor_order_effects():
     axes[1].grid(True)
     
     plt.tight_layout()
-    plt.savefig("result/taylor_evaluation/order_effects.png")
+    plt.savefig("results/taylor_evaluation/order_effects.png")
     plt.show()
     
     # 创建性能表格
@@ -113,7 +113,7 @@ def evaluate_taylor_order_effects():
     print(df.to_string(index=False))
     
     # 保存结果
-    with open("result/taylor_evaluation/order_performance.txt", "w", encoding='utf-8') as f:
+    with open("results/taylor_evaluation/order_performance.txt", "w", encoding='utf-8') as f:
         f.write(df.to_string(index=False))
     
     return df
@@ -176,7 +176,7 @@ def visualize_taylor_expansion_terms():
     plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig("result/taylor_evaluation/taylor_terms.png")
+    plt.savefig("results/taylor_evaluation/taylor_terms.png")
     plt.show()
     
     # 打印各阶贡献
@@ -198,7 +198,7 @@ def visualize_taylor_expansion_terms():
     terms_data.append(["真实值", "", true_next, ""])
     terms_df = pd.DataFrame(terms_data, columns=['阶数', '贡献', '累积和', '相对贡献'])
     
-    with open("result/taylor_evaluation/taylor_terms.txt", "w", encoding='utf-8') as f:
+    with open("results/taylor_evaluation/taylor_terms.txt", "w", encoding='utf-8') as f:
         f.write(terms_df.to_string(index=False))
     
     return terms_df
@@ -343,7 +343,7 @@ def compare_taylor_with_other_methods():
             all_results.append(results_for_tol)
         
         plt.tight_layout()
-        plt.savefig(f"result/taylor_evaluation/{prob_key}_methods_comparison.png")
+        plt.savefig(f"results/taylor_evaluation/{prob_key}_methods_comparison.png")
         plt.show()
     
     # 创建结果表格
@@ -352,7 +352,7 @@ def compare_taylor_with_other_methods():
     print(results_df.to_string(index=False))
     
     # 保存结果
-    with open("result/taylor_evaluation/methods_comparison.txt", "w", encoding='utf-8') as f:
+    with open("results/taylor_evaluation/methods_comparison.txt", "w", encoding='utf-8') as f:
         f.write(results_df.to_string(index=False))
     
     return results_df
@@ -405,7 +405,7 @@ def analyze_step_size_adaptation():
     plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig("result/taylor_evaluation/step_size_adaptation.png")
+    plt.savefig("results/taylor_evaluation/step_size_adaptation.png")
     plt.show()
     
     # 也对比各方法的步长
@@ -451,7 +451,7 @@ def analyze_step_size_adaptation():
     plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig("result/taylor_evaluation/methods_step_comparison.png")
+    plt.savefig("results/taylor_evaluation/methods_step_comparison.png")
     plt.show()
 
 def main():
@@ -464,7 +464,7 @@ def main():
     compare_taylor_with_other_methods()
     analyze_step_size_adaptation()
     
-    print("\n所有评估完成！结果已保存到 result/taylor_evaluation/")
+    print("\n所有评估完成！结果已保存到 results/taylor_evaluation/")
 
 if __name__ == "__main__":
     main()
