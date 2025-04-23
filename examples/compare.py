@@ -59,26 +59,30 @@ def lotka_volterra(t, state):
     return np.array([dxdt, dydt])
 
 def safe_lotka_x(t, y):
-    """安全处理x变量的Lotka-Volterra方程"""
-    from sympy import symbols
-    if isinstance(y, type(symbols('x'))):
-        # 符号模式返回简化形式
-        alpha, beta = 1.5, 1.0
-        return alpha * y - beta * y * y  # 简化符号表达式
-    
-    # 否则按照原逻辑处理
-    if np.isscalar(y):
-        try:
-            return lotka_volterra(t, [y, 1.0])[0]  # 固定y=1.0，只关注x
-        except Exception as e:
-            print(f"计算lotka_volterra时出错: {e}")
-            return 0.0  # 出错时返回安全值
-    else:
-        try:
-            return lotka_volterra(t, y)[0]
-        except Exception as e:
-            print(f"计算lotka_volterra(向量)时出错: {e}")
-            return 0.0  # 出错时返回安全值
+    """安全处理x变量的Lotka-Volterra方程，带有全面错误处理"""
+    try:
+        from sympy import symbols
+        if isinstance(y, type(symbols('x'))):
+            # 符号模式返回简化形式
+            alpha, beta = 1.5, 1.0
+            return alpha * y - beta * y * y  # 简化符号表达式
+        
+        # 数值模式
+        if np.isscalar(y):
+            try:
+                return lotka_volterra(t, [y, 1.0])[0]  # 固定y=1.0，只关注x
+            except Exception as e:
+                print(f"计算lotka_volterra时出错: {e}")
+                return 0.0  # 安全值
+        else:
+            try:
+                return lotka_volterra(t, y)[0]
+            except Exception as e:
+                print(f"计算lotka_volterra(向量)时出错: {e}")
+                return 0.0  # 安全值
+    except Exception as e:
+        print(f"safe_lotka_x函数发生未处理异常: {e}")
+        return 0.0  # 最终安全值
 
 def safe_lotka_y(t, y):
     """安全处理捕食者变量的Lotka-Volterra方程"""

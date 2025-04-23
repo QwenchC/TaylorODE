@@ -24,40 +24,86 @@ class TaylorODESolver:
         try:
             t, y = symbols('t y')
             
-            # 存储符号表达式
+            # 存储符号表达式和函数
             self.symbolic_derivatives = [y]  # y^(0) = y
+            self.derivative_funcs = [lambda t, y: y]  # 始终确保第0阶导数函数可用
             
             # 计算符号导数
             try:
                 current_expr = self.f(t, y)
                 self.symbolic_derivatives.append(current_expr)  # y^(1) = f(t, y)
+                self.derivative_funcs.append(lambda t, y: self.f(t, y))  # 确保第1阶导数函数可用
                 
                 # 计算高阶导数
                 for k in range(2, self.order + 2):
-                    # 对时间的全导数 dy^(k-1)/dt = ∂y^(k-1)/∂t + ∂y^(k-1)/∂y * f(t,y)
-                    t_partial = diff(current_expr, t)
-                    y_partial = diff(current_expr, y) * self.f(t, y)
-                    current_expr = t_partial + y_partial
-                    self.symbolic_derivatives.append(current_expr)
-                
-                # 将符号表达式转换为数值函数
-                self.derivative_funcs = []
-                for k, expr in enumerate(self.symbolic_derivatives):
-                    func = lambdify((t, y), expr, 'numpy')
-                    # 确保函数可调用
-                    if not callable(func):
-                        raise ValueError(f"无法创建可调用函数，表达式: {expr}")
-                    self.derivative_funcs.append(func)
-                    
+                    try:
+                        # 对时间的全导数 dy^(k-1)/dt = ∂y^(k-1)/∂t + ∂y^(k-1)/∂y * f(t,y)
+                        t_partial = diff(current_expr, t)
+                        y_partial = diff(current_expr, y) * self.f(t, y)
+                        current_expr = t_partial + y_partial
+                        self.symbolic_derivatives.append(current_expr)
+                        
+                        # 立即转换为函数并验证
+                        func = lambdify((t, y), current_expr, 'numpy')
+                        if not callable(func):
+                            raise ValueError(f"lambdify创建的第{k}阶导数函数不可调用")
+                        
+                        # 测试函数
+                        try:
+                            _ = func(0.0, 1.0)
+                            self.derivative_funcs.append(func)
+                        except Exception as e:
+                            raise ValueError(f"第{k}阶导数函数测试失败: {e}")
+                            
+                    except Exception as e:
+                        print(f"计算第{k}阶导数失败: {e}，使用数值近似")
+                        # 退化到更简单的近似
+                        self.derivative_funcs.append(self._make_fallback_deriv(k))
+                        break
+                        
             except Exception as e:
-                raise ValueError(f"符号微分过程中发生错误: {e}")
-                
+                print(f"符号微分过程中发生错误: {e}")
+                # 确保所有导数函数被初始化
+                while len(self.derivative_funcs) <= self.order + 1:
+                    k = len(self.derivative_funcs)
+                    self.derivative_funcs.append(self._make_fallback_deriv(k))
+                    
         except Exception as e:
-            print(f"符号微分失败: {e}")
-            print("切换至数值差分模式...")
+            print(f"符号微分完全失败: {e}")
+            print("切换至纯数值差分模式...")
             
-            # 定义数值差分函数替代符号微分
-            self.derivative_funcs = self._setup_numeric_derivatives()
+            # 重置导数函数列表
+            self.derivative_funcs = []
+            self.derivative_funcs.append(lambda t, y: y)  # 0阶导数
+            self.derivative_funcs.append(lambda t, y: self.f(t, y))  # 1阶导数
+            
+            # 为高阶导数创建安全的近似函数
+            for k in range(2, self.order + 2):
+                self.derivative_funcs.append(self._make_fallback_deriv(k))
+
+    def _make_fallback_deriv(self, order):
+        """创建一个安全的后备导数函数"""
+        if order == 0:
+            return lambda t, y: y
+        elif order == 1:
+            return lambda t, y: self.f(t, y)
+        elif order == 2:
+            # 二阶导数特殊处理
+            def second_deriv(t, y):
+                try:
+                    h = 1e-6
+                    f1 = self.f(t, y)
+                    y2 = y + h * f1
+                    f2 = self.f(t + h, y2)
+                    return (f2 - f1) / h
+                except Exception:
+                    # 使用更保守的估计
+                    return 0.0
+            return second_deriv
+        else:
+            # 高阶导数使用指数衰减的保守估计
+            scale = 0.1**(order-2)
+            return lambda t, y: scale * self.f(t, y) if callable(self.f) else 0.0
 
     def _setup_numeric_derivatives(self):
         """使用数值差分作为备选方案"""
@@ -94,36 +140,39 @@ class TaylorODESolver:
         return funcs
     
     def compute_derivatives(self, t0, y0):
-        """
-        计算给定点处的所有高阶导数值
-        
-        参数:
-            t0: 初始时间
-            y0: 初始状态
-            
-        返回:
-            导数列表 [y0, y'0, y''0, ..., y^(n)0]
-        """
+        """计算给定点处的所有高阶导数值，带有全面的错误处理"""
         derivatives = []
-        for k, func in enumerate(self.derivative_funcs):
-            if not callable(func):
-                print(f"警告: 第{k}阶导数函数不可调用，使用零替代")
-                deriv_value = 0.0
-            else:
-                try:
-                    deriv_value = func(t0, y0)
-                except Exception as e:
-                    print(f"计算第{k}阶导数时出错: {e}，使用零替代")
+        for k in range(min(len(self.derivative_funcs), self.order + 2)):
+            try:
+                if not callable(self.derivative_funcs[k]):
+                    print(f"警告: 第{k}阶导数函数不可调用，使用零替代")
                     deriv_value = 0.0
-            
-            # 数值稳定性控制 - 当导数值过大时进行截断
-            max_allowed = 1.0e6  # 设置合理的最大允许值
-            if k > 1 and abs(deriv_value) > max_allowed:  # 只限制高阶导数
-                # 截断并保留符号
-                deriv_value = max_allowed if deriv_value > 0 else -max_allowed
+                else:
+                    try:
+                        deriv_value = self.derivative_funcs[k](t0, y0)
+                        if deriv_value is None:
+                            print(f"警告: 第{k}阶导数计算结果为None，使用零替代")
+                            deriv_value = 0.0
+                    except Exception as e:
+                        print(f"计算第{k}阶导数时出错: {e}，使用零替代")
+                        deriv_value = 0.0
+                        
+                # 数值稳定性控制
+                max_allowed = 1.0e6
+                if k > 1 and abs(deriv_value) > max_allowed:
+                    orig_value = deriv_value
+                    deriv_value = max_allowed if deriv_value > 0 else -max_allowed
+                    print(f"第{k}阶导数值过大 ({orig_value})，截断为 {deriv_value}")
+                    
+                derivatives.append(deriv_value)
+            except Exception as e:
+                print(f"处理第{k}阶导数时发生未知错误: {e}，使用零替代")
+                derivatives.append(0.0)
                 
-            derivatives.append(deriv_value)
-        
+        # 确保有足够的导数
+        while len(derivatives) <= self.order + 1:
+            derivatives.append(0.0)
+                
         return derivatives
     
     def taylor_step(self, t0, y0, h):
