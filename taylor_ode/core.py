@@ -24,6 +24,22 @@ class TaylorODESolver:
         try:
             t, y = symbols('t y')
             
+            # 检查是否需要处理系统ODE
+            try:
+                # 尝试传入标量符号，看是否会尝试访问下标
+                f_test = self.f(0, y)
+                is_system = False
+            except (TypeError, IndexError):
+                # 如果尝试访问下标，这可能是一个系统ODE
+                print("检测到系统ODE，切换至数值差分模式...")
+                is_system = True
+                
+            if is_system:
+                # 系统ODE使用数值差分
+                self.derivative_funcs = self._setup_numeric_derivatives()
+                return
+                
+            # 对于标量ODE，继续使用符号计算
             # 存储符号表达式和函数
             self.symbolic_derivatives = [y]  # y^(0) = y
             self.derivative_funcs = [lambda t, y: y]  # 始终确保第0阶导数函数可用
@@ -143,14 +159,17 @@ class TaylorODESolver:
         """计算泰勒展开所需的导数，带有增强的数值稳定性控制"""
         derivatives = []
         
-        # 检查并确保导数函数可用
+        # 检查是否是系统ODE（多维数组）
+        is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
+        
+        # 确保导数函数足够
         missing_funcs = False
         for k in range(self.order + 2):
             if k >= len(self.derivative_funcs) or self.derivative_funcs[k] is None or not callable(self.derivative_funcs[k]):
                 missing_funcs = True
                 break
         
-        # 如有必要，重新初始化导数函数
+        # 如需要，重新初始化导数函数
         if missing_funcs:
             print("警告: 导数函数有缺失或不可调用，重新初始化...")
             # 保存原始f函数
@@ -160,37 +179,59 @@ class TaylorODESolver:
             self.derivative_funcs.append(lambda t, y: y)  # 0阶导数
             self.derivative_funcs.append(lambda t, y: original_f(t, y))  # 1阶导数
             
-            # 为高阶导数创建更稳定的函数
+            # 为系统ODE和标量ODE创建不同的高阶导数函数
             for k in range(2, self.order + 2):
                 order = k
-                # 随阶数增加减小数值，避免导数爆炸
+                # 高阶导数衰减因子，避免数值爆炸
                 scale_factor = min(1.0, 1.0/(order*order)) if order > 3 else 1.0
                 
-                # 创建适当的导数函数
-                if order == 2:
-                    # 二阶导数使用数值差分
-                    def deriv_2(t, y, f=original_f):
-                        try:
-                            h = min(1e-6, 0.01 * abs(y)) if y != 0 else 1e-6
-                            f1 = f(t, y)
-                            y2 = y + h * f1
-                            f2 = f(t + h, y2)
-                            return (f2 - f1) / h
-                        except:
-                            return scale_factor * f(t, y)
-                    self.derivative_funcs.append(deriv_2)
-                else:
-                    # 高阶导数使用适应性衰减
-                    def make_high_order(k, decay):
-                        def high_order_deriv(t, y, f=original_f):
-                            # 限制y的范围，避免数值极值
-                            y_safe = max(min(y, 1e6), -1e6)
-                            base_val = f(t, y_safe)
-                            # 应用基于k的衰减
-                            return base_val * decay * (0.7 ** (k-2))
-                        return high_order_deriv
+                # 为系统ODE和标量ODE创建不同的导数函数
+                if is_vector:
+                    # 系统ODE - 向量版本
+                    def make_vector_deriv(k, scale):
+                        def vector_deriv(t, y, f=original_f):
+                            try:
+                                # 有限差分近似
+                                h = 1e-6
+                                f1 = f(t, y)
+                                y2 = y + h * f1
+                                f2 = f(t + h, y2)
+                                approx_deriv = (f2 - f1) / h
+                                # 应用缩放防止高阶导数爆炸
+                                return approx_deriv * scale * (0.5 ** (k-2)) if k > 2 else approx_deriv
+                            except Exception as e:
+                                # 出错时返回零向量
+                                print(f"向量高阶导数计算出错: {e}")
+                                return np.zeros_like(y)
+                        return vector_deriv
                     
-                    self.derivative_funcs.append(make_high_order(order, scale_factor))
+                    self.derivative_funcs.append(make_vector_deriv(order, scale_factor))
+                else:
+                    # 标量ODE - 保持原逻辑
+                    if order == 2:
+                        # 二阶导数使用数值差分
+                        def deriv_2(t, y, f=original_f):
+                            try:
+                                h = min(1e-6, 0.01 * abs(y)) if y != 0 else 1e-6
+                                f1 = f(t, y)
+                                y2 = y + h * f1
+                                f2 = f(t + h, y2)
+                                return (f2 - f1) / h
+                            except:
+                                return scale_factor * f(t, y)
+                        self.derivative_funcs.append(deriv_2)
+                    else:
+                        # 高阶导数使用适应性衰减
+                        def make_high_order(k, decay):
+                            def high_order_deriv(t, y, f=original_f):
+                                # 限制y的范围，避免数值极值
+                                y_safe = max(min(y, 1e6), -1e6)
+                                base_val = f(t, y_safe)
+                                # 应用基于k的衰减
+                                return base_val * decay * (0.7 ** (k-2))
+                            return high_order_deriv
+                        
+                        self.derivative_funcs.append(make_high_order(order, scale_factor))
         
         # 计算所有导数
         for k in range(self.order + 2):
@@ -262,43 +303,81 @@ class TaylorODESolver:
             if np.random.random() < 0.001:  # 随机抽样调试输出
                 print(f"Debug - 前3阶导数: {derivatives[:3]}")
             
-            # 计算泰勒展开
-            main_solution = derivatives[0]  # 从0阶开始
-            for k in range(1, self.order + 1):
-                try:
-                    # 使用scipy.special.factorial而不是np.factorial
-                    term = derivatives[k] * (h**k) / factorial(k)
-                    # 检查数值是否有效
-                    if np.isfinite(term):
-                        main_solution += term
-                    else:
-                        print(f"警告: 第{k}阶泰勒项非有限值，已忽略")
-                except Exception as e:
-                    print(f"计算第{k}阶项时出错: {e}")
+            # 检测是否是系统ODE（多维数组）
+            is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
             
-            # 计算误差估计
+            # 计算泰勒展开
+            if is_vector:
+                # 向量情况 - 系统ODE
+                main_solution = derivatives[0].copy()  # 从0阶开始，使用copy避免引用问题
+                for k in range(1, self.order + 1):
+                    try:
+                        term = derivatives[k] * (h**k) / factorial(k)
+                        # 对于向量，需要逐元素检查数值有效性
+                        if np.all(np.isfinite(term)):  # 确保使用np.all()
+                            main_solution += term
+                        else:
+                            # 仅替换无限值部分
+                            mask = ~np.isfinite(term)
+                            if np.any(mask):  # 确保使用np.any()
+                                print(f"警告: 第{k}阶泰勒项含有非有限值，已进行部分替换")
+                                term[mask] = 0.0
+                                main_solution += term
+                    except Exception as e:
+                        print(f"计算第{k}阶项时出错: {e}")
+            else:
+                # 标量情况 - 单一ODE
+                main_solution = derivatives[0]  # 从0阶开始
+                for k in range(1, self.order + 1):
+                    try:
+                        term = derivatives[k] * (h**k) / factorial(k)
+                        if np.isfinite(term):
+                            main_solution += term
+                        else:
+                            print(f"警告: 第{k}阶泰勒项非有限值，已忽略")
+                    except Exception as e:
+                        print(f"计算第{k}阶项时出错: {e}")
+            
+            # 计算误差估计 - 需区分标量和向量情况
             try:
                 error_term = derivatives[self.order + 1] * (h**(self.order + 1)) / factorial(self.order + 1)
-                error = np.abs(error_term)
-                # 确保误差估计合理
-                if not np.isfinite(error) or error > 1.0:
-                    print(f"警告: 误差估计 {error} 不合理，使用保守值")
-                    error = 1e-3 * abs(main_solution)  # 保守估计
+                if is_vector:
+                    error = np.linalg.norm(error_term)  # 向量用范数
+                    if not np.isfinite(error) or error > 1.0:
+                        print(f"警告: 向量误差估计 {error} 不合理，使用保守值")
+                        error = 1e-3 * np.linalg.norm(main_solution)  # 保守估计
+                else:
+                    error = np.abs(error_term)  # 标量用绝对值
+                    if not np.isfinite(error) or error > 1.0:
+                        print(f"警告: 误差估计 {error} 不合理，使用保守值")
+                        error = 1e-3 * abs(main_solution)  # 保守估计
             except Exception as e:
                 print(f"计算误差估计时出错: {e}")
-                error = 1e-3 * abs(main_solution)  # 保守估计
+                if is_vector:
+                    error = 1e-3 * np.linalg.norm(main_solution)  # 向量保守估计
+                else:
+                    error = 1e-3 * abs(main_solution)  # 标量保守估计
             
             return main_solution, error
         
         except Exception as e:
             print(f"泰勒步骤计算完全失败: {e}")
-            # 退化为简单的欧拉步骤
+            # 退化为简单的欧拉步骤，同样需要区分标量和向量
             try:
+                is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
                 step = h * self.f(t0, y0)
-                return y0 + step, abs(step) * 0.1
+                
+                if is_vector:
+                    return y0 + step, 0.1 * np.linalg.norm(step)
+                else:
+                    return y0 + step, abs(step) * 0.1
             except:
                 print("欧拉步骤也失败，返回原始值")
-                return y0, abs(y0) * 0.01
+                is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
+                if is_vector:
+                    return y0, 0.01 * np.linalg.norm(y0) if np.any(y0 != 0) else 0.01
+                else:
+                    return y0, abs(y0) * 0.01 if y0 != 0 else 0.01
     
     def solve(self, t_span, y0, tol=1e-6, max_step=0.1, min_step=1e-8, fixed_points=None):
         """
