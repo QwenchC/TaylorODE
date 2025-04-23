@@ -28,6 +28,9 @@ from taylor_ode.core import TaylorODESolver
 from taylor_ode.solvers import TaylorSolver, RK45Solver, RadauSolver, HybridTaylorSolver
 from taylor_ode.utils import analyze_ode
 
+# 导入兼容函数
+from taylor_ode.math_compat import compatible_sin, compatible_cos, compatible_exp
+
 # 创建结果目录
 import os
 def ensure_dir(directory):
@@ -124,7 +127,8 @@ def visualize_taylor_expansion_terms():
     
     # 定义测试ODE
     def nonlinear_ode(t, y):
-        return np.sin(t) - 0.1 * y**2
+        """使用兼容函数的非线性振荡"""
+        return compatible_sin(t) - 0.1 * y**2
     
     # 创建求解器
     solver = TaylorODESolver(nonlinear_ode, order=8)
@@ -218,14 +222,14 @@ def compare_taylor_with_other_methods():
         },
         "非线性ODE": {
             "name": "非线性振荡",
-            "func": lambda t, y: np.sin(t) - 0.1 * y**2,
+            "func": lambda t, y: compatible_sin(t) - 0.1 * y**2,
             "t_span": [0, 10],
             "y0": 0.5,
             "exact": None  # 无解析解
         },
         "刚性ODE": {
             "name": "刚性微分方程",
-            "func": lambda t, y: -15 * y + 8 * np.sin(t),
+            "func": lambda t, y: -15 * y + 8 * compatible_sin(t),
             "t_span": [0, 10],
             "y0": 0.0,
             "exact": lambda t: (8/17) * (np.sin(t) - (15/8) * np.cos(t) + (15/8) * np.exp(-15*t))

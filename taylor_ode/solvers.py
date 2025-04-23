@@ -147,20 +147,70 @@ class HybridTaylorSolver(ODESolverBase):
         return f"Hybrid(Taylor{self.order}/{self.fallback_method})"
     
     def solve(self, t_span, y0, tol=1e-6, **kwargs):
-        """重写求解方法，避免系统ODE上的错误"""
-        # 检查是否为系统ODE
-        is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
+        """增强的solve方法确保总是返回有效结果"""
+        # 检查是否是系统ODE
+        is_vector = hasattr(y0, '__len__') and len(y0) > 1
         
-        # 对于系统ODE，优先使用备选求解器
-        if is_vector and not kwargs.get('force_taylor', False):
+        # 对于系统ODE，直接使用fallback_solver
+        if is_vector:
             print(f"系统ODE检测：优先使用{self.fallback_method}求解")
-            return self.fallback_solver.solve(t_span, y0, tol=tol, **kwargs)
+            try:
+                return self.fallback_solver.solve(t_span, y0, tol=tol, **kwargs)
+            except Exception as e:
+                print(f"备选求解器也失败: {e}")
+                # 出错时使用scipy的solve_ivp
+                from scipy.integrate import solve_ivp
+                sol = solve_ivp(self.f, t_span, y0, method='RK45', rtol=tol, atol=tol)
+                return sol.t, sol.y.T
         
-        # 尝试正常的混合求解
+        # 对于标量ODE，使用混合策略
         try:
-            return super().solve(t_span, y0, tol=tol, **kwargs)
+            # 步长限制避免过小步长导致的问题
+            kwargs['min_step'] = kwargs.get('min_step', 1e-10)
+            
+            # 使用原始策略求解
+            t, y = [], []
+            t_current = t_span[0]
+            y_current = y0
+            
+            while t_current < t_span[1]:
+                # 判断是使用泰勒步长还是其他方法
+                if self._should_use_taylor_step(t_current, y_current, kwargs.get('max_step', 0.1)):
+                    # 使用泰勒方法
+                    y_next, error, h_used = self.taylor_solver.step(t_current, y_current, 
+                                                                   kwargs.get('max_step', 0.1))
+                    # 更新
+                    t.append(t_current)
+                    y.append(y_current)
+                    t_current += h_used
+                    y_current = y_next
+                else:
+                    # 使用备选方法计算剩余部分
+                    remaining_span = [t_current, t_span[1]]
+                    t_fallback, y_fallback = self.fallback_solver.solve(remaining_span, y_current, tol=tol)
+                    
+                    # 合并结果
+                    if len(t) > 0:
+                        t = np.concatenate([t, t_fallback[1:]])
+                        y = np.concatenate([y, y_fallback[1:]])
+                    else:
+                        t = t_fallback
+                        y = y_fallback
+                    break
+                    
+            # 确保最后一点是终点
+            if t[-1] < t_span[1]:
+                # 计算终点值
+                remaining_span = [t[-1], t_span[1]]
+                t_end, y_end = self.fallback_solver.solve(remaining_span, y[-1], tol=tol)
+                t = np.concatenate([t, [t_span[1]]])
+                y = np.concatenate([y, [y_end[-1]]])
+                
+            return np.array(t), np.array(y)
+            
         except Exception as e:
-            print(f"混合方法失败: {e}，切换到{self.fallback_method}")
+            print(f"混合求解器出错: {e}，使用备选方法")
+            # 完全回退到备选求解器
             return self.fallback_solver.solve(t_span, y0, tol=tol, **kwargs)
     
     def step(self, t, y, h):
