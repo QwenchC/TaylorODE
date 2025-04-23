@@ -4,6 +4,7 @@ import time
 import sys
 import os
 import matplotlib.font_manager as fm
+from io import StringIO
 
 # 添加中文字体支持
 # 尝试设置不同的中文字体
@@ -23,24 +24,55 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 导入新的统一接口
 from taylor_ode.api import solve_ode
 
-def run_advanced_examples():
+# 创建结果目录
+def ensure_dir(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+def run_advanced_examples(save_results=False):
     """展示新的求解器接口和功能"""
+    
+    # 设置结果保存目录
+    if save_results:
+        result_dir = "result/advanced_usage"
+        ensure_dir(result_dir)
+        # 捕获控制台输出
+        old_stdout = sys.stdout
+        output_log = StringIO()
+        sys.stdout = output_log
     
     print("示例1: 自动方法选择")
     # 定义简单的ODE
     def exponential_decay(t, y):
         return -0.5 * y
     
-    # 使用自动选择
+    # 使用自动选择 - 关闭内置绘图
     t_span = [0, 10]
     y0 = 1.0
-    t, y = solve_ode(exponential_decay, t_span, y0, method='auto', tol=1e-6, plot=True)
+    t, y = solve_ode(exponential_decay, t_span, y0, method='auto', tol=1e-6, plot=False)
     
     # 计算精确解进行比较
     exact = y0 * np.exp(-0.5 * t)
     error = np.max(np.abs(y - exact))
     print(f"最大误差: {error:.2e}")
-    print()
+    
+    # 明确创建新图形
+    plt.figure(figsize=(10, 6))
+    plt.plot(t, y, 'bo-', label='数值解')
+    plt.plot(t, exact, 'r-', label='解析解')
+    plt.xlabel('时间')
+    plt.ylabel('y(t)')
+    plt.title('指数衰减函数求解比较')
+    plt.legend()
+    plt.grid(True)
+    
+    # 先保存再显示
+    if save_results:
+        plt.savefig(f"{result_dir}/example1_decay.png", dpi=300, bbox_inches='tight')
+        print(f"已保存图片: {result_dir}/example1_decay.png")
+    
+    plt.tight_layout()
+    plt.show()
     
     print("示例2: 刚性问题")
     # 刚性ODE示例 (Robertson化学反应)
@@ -94,6 +126,10 @@ def run_advanced_examples():
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
+    
+    # 保存刚性问题图表
+    if save_results:
+        plt.savefig(f"{result_dir}/example2_stiff.png")
     plt.show()
     print()
     
@@ -140,7 +176,9 @@ def run_advanced_examples():
         plt.grid(True)
         plt.legend()
     
-    plt.tight_layout()
+    # 保存Van der Pol振荡器结果图
+    if save_results:
+        plt.savefig(f"{result_dir}/example3_methods.png")
     plt.show()
     
     # 相图比较
@@ -154,11 +192,25 @@ def run_advanced_examples():
     plt.title('Van der Pol 振荡器相图')
     plt.grid(True)
     plt.legend()
+    
+    # 保存相图比较
+    if save_results:
+        plt.savefig(f"{result_dir}/example3_phase.png")
     plt.show()
     
     print("方法性能比较:")
     for method in methods:
         print(f"  {method.capitalize()}: {times[method]:.3f} 秒, {len(results[method][0])} 步")
+    
+    # 完成后保存输出日志
+    if save_results:
+        sys.stdout = old_stdout
+        with open(f"{result_dir}/output_log.txt", "w", encoding="utf-8") as f:
+            f.write(output_log.getvalue())
+        print(f"结果已保存到 {os.path.abspath(result_dir)} 目录")
 
+# 修改主调用部分
 if __name__ == "__main__":
-    run_advanced_examples()
+    # 检查是否有命令行参数
+    save_mode = "--save" in sys.argv
+    run_advanced_examples(save_results=save_mode)
