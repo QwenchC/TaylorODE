@@ -112,17 +112,17 @@ def run_advanced_examples():
                 # 处理意外的向量长度
                 return np.zeros_like(y)
         else:
-            # 标量版本 - 用于符号处理
-            return 0  # 简化的返回值，仅用于符号检测
-    
+            # 标量版本 - 用于符号计算测试
+            return 0.0  # 简化的返回值
+
     y0 = np.array([2.0, 0.0])
     t_span = [0, 20]
-    
-    # 比较不同方法 - 使用更适合系统ODE的方法
-    methods = ['rk45', 'hybrid', 'radau']  # 避免直接使用taylor方法处理系统
+
+    # 注意：对于系统ODE，我们应该优先选择适合的方法
+    methods = ['rk45', 'hybrid', 'radau']
     results = {}
     times = {}
-    
+
     plt.figure(figsize=(15, 10))
     
     for i, method in enumerate(methods):

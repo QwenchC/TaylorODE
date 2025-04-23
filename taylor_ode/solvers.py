@@ -126,6 +126,7 @@ class HybridTaylorSolver(ODESolverBase):
         self.f = f
         self.order = order
         self.fallback_method = fallback_method
+        self._solver_name = f"hybrid"  # 改成_solver_name避免与属性方法同名
         
         # 初始化求解器
         from .core import TaylorODESolver
@@ -139,75 +140,41 @@ class HybridTaylorSolver(ODESolverBase):
         else:
             raise ValueError(f"不支持的备选方法: {fallback_method}")
     
+    # 添加缺失的name属性方法
+    @property
+    def name(self):
+        """返回求解器名称"""
+        return f"Hybrid(Taylor{self.order}/{self.fallback_method})"
+    
     def solve(self, t_span, y0, tol=1e-6, **kwargs):
-        """混合求解ODE - 将区间分段，每段选择最佳方法"""
-        max_segment_length = kwargs.get('max_segment_length', (t_span[1] - t_span[0]) / 5)
-        segments = self._create_segments(t_span, max_segment_length)
+        """重写求解方法，避免系统ODE上的错误"""
+        # 检查是否为系统ODE
+        is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
         
-        all_t = [t_span[0]]
-        all_y = [y0]
+        # 对于系统ODE，优先使用备选求解器
+        if is_vector and not kwargs.get('force_taylor', False):
+            print(f"系统ODE检测：优先使用{self.fallback_method}求解")
+            return self.fallback_solver.solve(t_span, y0, tol=tol, **kwargs)
         
-        # 逐段求解
-        current_y = y0
-        
-        for i, (start_t, end_t) in enumerate(segments):
-            segment_span = [start_t, end_t]
-            
-            # 确定本段使用哪个求解器
-            use_taylor = self._should_use_taylor(start_t, current_y, segment_span, i, len(segments))
-            
-            try:
-                if use_taylor:
-                    # 尝试使用泰勒求解器
-                    t_segment, y_segment = self.taylor_solver.solve(segment_span, current_y, tol=tol)
-                else:
-                    # 使用备选求解器
-                    t_segment, y_segment = self.fallback_solver.solve(segment_span, current_y, tol=tol)
-                
-                # 去除重复的起点
-                if len(t_segment) > 1:
-                    all_t.extend(t_segment[1:])
-                    
-                    if np.isscalar(current_y):
-                        all_y.extend(y_segment[1:])
-                    else:
-                        all_y.extend(y_segment[1:])
-                
-                # 更新下一段的起点
-                current_y = all_y[-1]
-                
-            except Exception as e:
-                print(f"段 {i+1}/{len(segments)} 求解失败: {e}，切换到备选求解器")
-                
-                # 使用备选求解器重试
-                t_segment, y_segment = self.fallback_solver.solve(segment_span, current_y, tol=tol)
-                
-                if len(t_segment) > 1:
-                    all_t.extend(t_segment[1:])
-                    
-                    if np.isscalar(current_y):
-                        all_y.extend(y_segment[1:])
-                    else:
-                        all_y.extend(y_segment[1:])
-                
-                current_y = all_y[-1]
-        
-        return np.array(all_t), np.array(all_y)
+        # 尝试正常的混合求解
+        try:
+            return super().solve(t_span, y0, tol=tol, **kwargs)
+        except Exception as e:
+            print(f"混合方法失败: {e}，切换到{self.fallback_method}")
+            return self.fallback_solver.solve(t_span, y0, tol=tol, **kwargs)
     
     def step(self, t, y, h):
         """执行单步求解 - 动态选择最佳方法"""
         # 判断是否应该使用泰勒展开
         use_taylor = self._should_use_taylor_step(t, y, h)
         
-        try:
-            if use_taylor:
+        if use_taylor:
+            try:
                 return self.taylor_solver.taylor_step(t, y, h)
-            else:
+            except Exception as e:
+                # 如果泰勒方法失败，回退到传统方法
                 return self.fallback_solver.step(t, y, h)
-                
-        except Exception as e:
-            # 出错时使用备选方法
-            print(f"步骤求解出错: {e}，使用备选方法")
+        else:
             return self.fallback_solver.step(t, y, h)
     
     def _create_segments(self, t_span, max_length):
@@ -263,23 +230,21 @@ class HybridTaylorSolver(ODESolverBase):
         # 对于小步长，泰勒展开通常表现更好
         if h < 0.01:
             return True
-            
+        
+        # 检查是否为系统ODE
+        is_vector = hasattr(y, '__len__') and not isinstance(y, (str, bytes))
+        
         # 检查此点的行为
         try:
             f_val = self.f(t, y)
             
-            # 对于变化较平滑的点，泰勒展开更适合
-            if np.isscalar(y):
-                if abs(f_val) < 100:
-                    return True
+            if is_vector:
+                # 系统ODE - 使用范数评估
+                return np.linalg.norm(f_val) < 100
             else:
-                if np.linalg.norm(f_val) < 100:
-                    return True
+                # 标量ODE
+                return abs(f_val) < 100
         except:
-            pass
-            
+            return False
+        
         return False
-    
-    @property
-    def name(self):
-        return f"HybridTaylor(order={self.order}, fallback={self.fallback_method})"

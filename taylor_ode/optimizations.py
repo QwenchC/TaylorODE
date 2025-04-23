@@ -102,27 +102,37 @@ def gpu_taylor_step(derivatives, h, order):
     return main_solution, cp.linalg.norm(error_term)
 
 def intel_optimized_taylor_step(derivatives, h, order):
-    """
-    为Intel处理器优化的泰勒展开计算
+    """为Intel处理器优化的泰勒展开计算"""
+    # 检查输入是否为数组
+    is_vector = hasattr(derivatives[0], '__len__') and not isinstance(derivatives[0], (str, bytes))
     
-    参数:
-        derivatives: 导数列表
-        h: 步长
-        order: 展开阶数
+    if is_vector:
+        # 向量情况 - 系统ODE
+        h_powers = np.array([h**k / factorial(k) for k in range(order + 1)])
+        main_solution = np.zeros_like(derivatives[0], dtype=float)
         
-    返回:
-        泰勒展开结果
-    """
-    # 预先计算所有h的幂次，利用向量化操作
-    h_powers = np.array([h**k / factorial(k) for k in range(order + 1)])
+        for k in range(order + 1):
+            if k < len(derivatives) and derivatives[k] is not None:
+                term = derivatives[k] * h_powers[k]
+                # 确保值有效
+                if np.all(np.isfinite(term)):
+                    main_solution += term
+        
+        # 计算误差估计
+        if order + 1 < len(derivatives) and derivatives[order + 1] is not None:
+            error_term = derivatives[order + 1] * (h**(order + 1)) / factorial(order + 1)
+            error = np.linalg.norm(error_term)
+        else:
+            error = 1e-3 * np.linalg.norm(main_solution)
+    else:
+        # 标量情况
+        # 原有逻辑保持不变
+        h_powers = np.array([h**k / factorial(k) for k in range(order + 1)])
+        main_solution = np.dot(derivatives[:order+1], h_powers)
+        error_term = derivatives[order + 1] * (h**(order + 1)) / factorial(order + 1)
+        error = np.abs(error_term)
     
-    # 使用向量化的点积运算 (Intel MKL会自动优化这部分)
-    main_solution = np.dot(derivatives[:order+1], h_powers)
-    
-    # 计算误差估计项
-    error_term = derivatives[order + 1] * (h**(order + 1)) / factorial(order + 1)
-    
-    return main_solution, np.abs(error_term)
+    return main_solution, error
 
 @jit(nopython=True)
 def regularized_derivatives(derivatives, factor=0.9):

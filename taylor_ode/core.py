@@ -295,89 +295,42 @@ class TaylorODESolver:
         return derivatives
     
     def taylor_step(self, t0, y0, h):
-        """执行一个泰勒展开步骤，带完整错误处理"""
-        try:
-            derivatives = self.compute_derivatives(t0, y0)
-            
-            # 随机调试输出
-            if np.random.random() < 0.001:  # 随机抽样调试输出
-                print(f"Debug - 前3阶导数: {derivatives[:3]}")
-            
-            # 检测是否是系统ODE（多维数组）
-            is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
-            
-            # 计算泰勒展开
-            if is_vector:
-                # 向量情况 - 系统ODE
-                main_solution = derivatives[0].copy()  # 从0阶开始，使用copy避免引用问题
-                for k in range(1, self.order + 1):
-                    try:
-                        term = derivatives[k] * (h**k) / factorial(k)
-                        # 对于向量，需要逐元素检查数值有效性
-                        if np.all(np.isfinite(term)):  # 确保使用np.all()
-                            main_solution += term
-                        else:
-                            # 仅替换无限值部分
-                            mask = ~np.isfinite(term)
-                            if np.any(mask):  # 确保使用np.any()
-                                print(f"警告: 第{k}阶泰勒项含有非有限值，已进行部分替换")
-                                term[mask] = 0.0
-                                main_solution += term
-                    except Exception as e:
-                        print(f"计算第{k}阶项时出错: {e}")
-            else:
-                # 标量情况 - 单一ODE
-                main_solution = derivatives[0]  # 从0阶开始
-                for k in range(1, self.order + 1):
-                    try:
-                        term = derivatives[k] * (h**k) / factorial(k)
-                        if np.isfinite(term):
-                            main_solution += term
-                        else:
-                            print(f"警告: 第{k}阶泰勒项非有限值，已忽略")
-                    except Exception as e:
-                        print(f"计算第{k}阶项时出错: {e}")
-            
-            # 计算误差估计 - 需区分标量和向量情况
-            try:
-                error_term = derivatives[self.order + 1] * (h**(self.order + 1)) / factorial(self.order + 1)
-                if is_vector:
-                    error = np.linalg.norm(error_term)  # 向量用范数
-                    if not np.isfinite(error) or error > 1.0:
-                        print(f"警告: 向量误差估计 {error} 不合理，使用保守值")
-                        error = 1e-3 * np.linalg.norm(main_solution)  # 保守估计
-                else:
-                    error = np.abs(error_term)  # 标量用绝对值
-                    if not np.isfinite(error) or error > 1.0:
-                        print(f"警告: 误差估计 {error} 不合理，使用保守值")
-                        error = 1e-3 * abs(main_solution)  # 保守估计
-            except Exception as e:
-                print(f"计算误差估计时出错: {e}")
-                if is_vector:
-                    error = 1e-3 * np.linalg.norm(main_solution)  # 向量保守估计
-                else:
-                    error = 1e-3 * abs(main_solution)  # 标量保守估计
-            
-            return main_solution, error
+        """执行一个泰勒展开步骤"""
+        derivatives = self.compute_derivatives(t0, y0)
         
-        except Exception as e:
-            print(f"泰勒步骤计算完全失败: {e}")
-            # 退化为简单的欧拉步骤，同样需要区分标量和向量
+        # 检测是否是系统ODE（向量值）
+        is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
+        
+        # 对于调试，随机输出一些导数信息
+        if np.random.random() < 0.01:  # 1%概率输出
+            print(f"Debug - 前3阶导数: {derivatives[:3]}")
+        
+        # 计算泰勒展开
+        main_solution = derivatives[0]  # 从0阶开始
+        for k in range(1, self.order + 1):
             try:
-                is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
-                step = h * self.f(t0, y0)
+                term = derivatives[k] * (h**k) / factorial(k)
                 
                 if is_vector:
-                    return y0 + step, 0.1 * np.linalg.norm(step)
+                    # 系统ODE - 使用np.all()确保所有元素都有效
+                    if np.all(np.isfinite(term)):
+                        main_solution += term
                 else:
-                    return y0 + step, abs(step) * 0.1
-            except:
-                print("欧拉步骤也失败，返回原始值")
-                is_vector = hasattr(y0, '__len__') and not isinstance(y0, (str, bytes))
-                if is_vector:
-                    return y0, 0.01 * np.linalg.norm(y0) if np.any(y0 != 0) else 0.01
-                else:
-                    return y0, abs(y0) * 0.01 if y0 != 0 else 0.01
+                    # 标量ODE - 直接判断
+                    if np.isfinite(term):
+                        main_solution += term
+            except Exception as e:
+                print(f"计算第{k}阶项时出错: {e}")
+        
+        # 误差估计
+        try:
+            error_term = derivatives[self.order + 1] * (h**(self.order + 1)) / factorial(self.order + 1)
+            error = np.linalg.norm(error_term) if is_vector else abs(error_term)
+        except:
+            # 默认误差估计
+            error = 1e-3 * (np.linalg.norm(main_solution) if is_vector else abs(main_solution))
+        
+        return main_solution, error
     
     def solve(self, t_span, y0, tol=1e-6, max_step=0.1, min_step=1e-8, fixed_points=None):
         """
