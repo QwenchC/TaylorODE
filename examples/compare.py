@@ -68,9 +68,17 @@ def safe_lotka_x(t, y):
     
     # 否则按照原逻辑处理
     if np.isscalar(y):
-        return lotka_volterra(t, [y, 1.0])[0]  # 固定y=1.0，只关注x
+        try:
+            return lotka_volterra(t, [y, 1.0])[0]  # 固定y=1.0，只关注x
+        except Exception as e:
+            print(f"计算lotka_volterra时出错: {e}")
+            return 0.0  # 出错时返回安全值
     else:
-        return lotka_volterra(t, y)[0]
+        try:
+            return lotka_volterra(t, y)[0]
+        except Exception as e:
+            print(f"计算lotka_volterra(向量)时出错: {e}")
+            return 0.0  # 出错时返回安全值
 
 def safe_lotka_y(t, y):
     """安全处理捕食者变量的Lotka-Volterra方程"""

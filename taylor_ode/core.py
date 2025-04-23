@@ -24,36 +24,43 @@ class TaylorODESolver:
         try:
             t, y = symbols('t y')
             
-            # 储存符号表达式
+            # 存储符号表达式
             self.symbolic_derivatives = [y]  # y^(0) = y
             
             # 计算符号导数
-            current_expr = self.f(t, y)
-            self.symbolic_derivatives.append(current_expr)  # y^(1) = f(t, y)
-            
-            # 计算高阶导数，添加正则化以避免爆炸
-            for k in range(2, self.order + 2):
-                # 对时间的全导数 dy^(k-1)/dt = ∂y^(k-1)/∂t + ∂y^(k-1)/∂y * f(t,y)
-                t_partial = diff(current_expr, t)
-                y_partial = diff(current_expr, y) * self.f(t, y)
-                current_expr = t_partial + y_partial
+            try:
+                current_expr = self.f(t, y)
+                self.symbolic_derivatives.append(current_expr)  # y^(1) = f(t, y)
                 
-                # 应用正则化降低高阶导数影响
-                self.symbolic_derivatives.append(current_expr)
-            
-            # 将符号表达式转换为数值函数
-            self.derivative_funcs = []
-            for k, expr in enumerate(self.symbolic_derivatives):
-                self.derivative_funcs.append(lambdify((t, y), expr, 'numpy'))
+                # 计算高阶导数
+                for k in range(2, self.order + 2):
+                    # 对时间的全导数 dy^(k-1)/dt = ∂y^(k-1)/∂t + ∂y^(k-1)/∂y * f(t,y)
+                    t_partial = diff(current_expr, t)
+                    y_partial = diff(current_expr, y) * self.f(t, y)
+                    current_expr = t_partial + y_partial
+                    self.symbolic_derivatives.append(current_expr)
+                
+                # 将符号表达式转换为数值函数
+                self.derivative_funcs = []
+                for k, expr in enumerate(self.symbolic_derivatives):
+                    func = lambdify((t, y), expr, 'numpy')
+                    # 确保函数可调用
+                    if not callable(func):
+                        raise ValueError(f"无法创建可调用函数，表达式: {expr}")
+                    self.derivative_funcs.append(func)
+                    
+            except Exception as e:
+                raise ValueError(f"符号微分过程中发生错误: {e}")
                 
         except Exception as e:
             print(f"符号微分失败: {e}")
             print("切换至数值差分模式...")
-            # 简化版本的数值微分实现
+            
+            # 定义数值差分函数替代符号微分
             self.derivative_funcs = self._setup_numeric_derivatives()
 
     def _setup_numeric_derivatives(self):
-        """使用数值微分作为备选方案"""
+        """使用数值差分作为备选方案"""
         funcs = []
         
         # 0阶导数就是函数值本身
@@ -78,7 +85,8 @@ class TaylorODESolver:
                         # 高阶导数，使用中心差分
                         h = 1e-6
                         # 应用正则化避免数值爆炸
-                        return 0.1**(order-2) * self.f(t, y)  # 简化高阶导数估计
+                        scale = 0.1**(order-2)  # 高阶导数衰减因子
+                        return scale * self.f(t, y)  # 简化高阶导数估计
                 return numeric_deriv
             
             funcs.append(make_func(k))
@@ -98,17 +106,21 @@ class TaylorODESolver:
         """
         derivatives = []
         for k, func in enumerate(self.derivative_funcs):
-            deriv_value = func(t0, y0)
+            if not callable(func):
+                print(f"警告: 第{k}阶导数函数不可调用，使用零替代")
+                deriv_value = 0.0
+            else:
+                try:
+                    deriv_value = func(t0, y0)
+                except Exception as e:
+                    print(f"计算第{k}阶导数时出错: {e}，使用零替代")
+                    deriv_value = 0.0
             
             # 数值稳定性控制 - 当导数值过大时进行截断
             max_allowed = 1.0e6  # 设置合理的最大允许值
             if k > 1 and abs(deriv_value) > max_allowed:  # 只限制高阶导数
                 # 截断并保留符号
                 deriv_value = max_allowed if deriv_value > 0 else -max_allowed
-                
-            # 应用正则化衰减，高阶导数权重降低
-            if k > 2:  # 3阶及以上导数
-                deriv_value *= 0.1**(k-2)
                 
             derivatives.append(deriv_value)
         
