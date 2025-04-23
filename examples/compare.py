@@ -164,33 +164,83 @@ def compare_methods():
         
         # 尝试使用泰勒展开求解第一个变量
         try:
-            # 使用较低阶数以提高稳定性，并且使用较小步长
-            solver = TaylorODESolver(safe_lotka_x, order=3)  # 从5阶降为3阶
+            # 使用较低阶数以提高稳定性
+            solver = TaylorODESolver(safe_lotka_x, order=3)
             
             start_time = time.time()
-            # 设置更保守的步长控制
-            t_taylor, y_taylor_x = solver.solve(t_span, y0[0], tol=tol, max_step=0.05, min_step=1e-6)
+            t_taylor, y_taylor_x = solver.solve(t_span, y0[0], tol=tol, max_step=0.05)
             taylor_time = time.time() - start_time
             
             print(f"泰勒展开求解时间: {taylor_time:.4f} 秒")
             print(f"泰勒展开步数: {len(t_taylor)}")
             
-            # 创建有效的误差比较
+            # 修改这部分代码处理误差计算
             if len(t_taylor) > 1:
                 try:
                     from scipy.interpolate import interp1d
-                    # 限制在共同的有效范围内
-                    t_min = max(t_taylor[0], rk_sol.t[0])
-                    t_max = min(t_taylor[-1], rk_sol.t[-1])
-                    if t_max > t_min:
-                        # 使用较少的点以减少计算量
-                        t_common = np.linspace(t_min, t_max, 50)
-                        taylor_interp = interp1d(t_taylor, y_taylor_x, kind='linear',
-                                                bounds_error=False, fill_value="extrapolate")
-                        taylor_error = np.max(np.abs(taylor_interp(t_common) - rk_sol.sol(t_common)[0]))
-                        print(f"泰勒展开最大误差: {taylor_error:.2e}")
+                    
+                    # 检查RK45解是否包含dense_output
+                    if hasattr(rk_sol, 'sol') and rk_sol.sol is not None and callable(rk_sol.sol):
+                        # 限制在共同的有效范围内
+                        t_min = max(t_taylor[0], rk_sol.t[0])
+                        t_max = min(t_taylor[-1], rk_sol.t[-1])
+                        
+                        if t_max > t_min:
+                            # 使用较少的点以减少计算量
+                            t_common = np.linspace(t_min, t_max, 50)
+                            
+                            # 创建泰勒解的插值函数
+                            taylor_interp = interp1d(
+                                t_taylor, y_taylor_x, 
+                                kind='linear',
+                                bounds_error=False, 
+                                fill_value="extrapolate"
+                            )
+                            
+                            # 确保RK45解的插值函数可调用
+                            try:
+                                rk_values = np.array([rk_sol.sol(t)[0] for t in t_common])
+                                taylor_values = taylor_interp(t_common)
+                                taylor_error = np.max(np.abs(taylor_values - rk_values))
+                                print(f"泰勒展开最大误差: {taylor_error:.2e}")
+                            except Exception as e:
+                                print(f"RK45插值失败: {e}")
+                                # 使用替代方法，直接在RK45的t点上评估
+                                rk_interp = interp1d(
+                                    rk_sol.t, rk_sol.y[0], 
+                                    kind='linear',
+                                    bounds_error=False, 
+                                    fill_value="extrapolate"
+                                )
+                                t_eval = np.linspace(t_min, t_max, 50)
+                                taylor_error = np.max(np.abs(taylor_interp(t_eval) - rk_interp(t_eval)))
+                                print(f"替代方法计算误差: {taylor_error:.2e}")
+                    else:
+                        # RK45未提供dense_output，使用普通插值
+                        print("RK45未提供dense_output，使用标准插值")
+                        rk_interp = interp1d(
+                            rk_sol.t, rk_sol.y[0], 
+                            kind='linear',
+                            bounds_error=False, 
+                            fill_value="extrapolate"
+                        )
+                        t_common = np.linspace(
+                            max(t_taylor[0], rk_sol.t[0]),
+                            min(t_taylor[-1], rk_sol.t[-1]),
+                            50
+                        )
+                        taylor_interp = interp1d(
+                            t_taylor, y_taylor_x, 
+                            kind='linear',
+                            bounds_error=False, 
+                            fill_value="extrapolate"
+                        )
+                        taylor_error = np.max(np.abs(taylor_interp(t_common) - rk_interp(t_common)))
+                        print(f"标准插值误差: {taylor_error:.2e}")
                 except Exception as e:
                     print(f"误差计算失败: {e}")
+                    # 实在不行，提供一个简单的可视化比较
+                    print("改为直接可视化比较结果")
         except Exception as e:
             print(f"泰勒展开求解出错: {str(e)}")
         
