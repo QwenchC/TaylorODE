@@ -12,7 +12,7 @@ import numpy as np
 # 设置中文字体支持
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun', 'FangSong', 'Arial Unicode MS']  # 优先使用黑体
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.family'] = 'SimHei'
 
 # 检查字体是否正确加载
 print("当前系统可用字体:", [f for f in matplotlib.font_manager.findSystemFonts() if os.path.basename(f).startswith(('sim', 'Sim', 'micro', 'Micro'))])
@@ -312,6 +312,33 @@ def visualize_taylor_expansion_terms():
     
     return terms_df
 
+from taylor_ode.system_taylor import SystemTaylorSolver
+
+def is_system_ode(func, y0):
+    """检测给定的函数是否为系统ODE
+    
+    参数:
+        func: ODE函数
+        y0: 初始值
+        
+    返回:
+        bool: 是否是系统ODE
+    """
+    # 如果y0是向量，很可能是系统ODE
+    if hasattr(y0, '__len__') and len(y0) > 1:
+        return True
+    
+    # 尝试计算一个值
+    try:
+        result = func(0, y0)
+        # 如果结果是向量，则是系统ODE
+        if hasattr(result, '__len__') and len(result) > 1:
+            return True
+    except:
+        pass
+        
+    return False
+
 def compare_taylor_with_other_methods():
     """比较泰勒展开与其他方法在不同类型问题上的表现"""
     print("\n评估3: 泰勒展开与其他方法比较")
@@ -425,6 +452,34 @@ def compare_taylor_with_other_methods():
                     results_for_tol[f'{method_name}_步数'] = 'Error'
                     results_for_tol[f'{method_name}_误差'] = 'Error'
             
+            # 对于系统ODE，尝试使用SystemTaylorSolver
+            if is_system_ode(problem["func"], problem["y0"]):
+                system_solvers = {
+                    "SystemTaylor3": SystemTaylorSolver(problem["func"], order=3),
+                    "SystemTaylor5": SystemTaylorSolver(problem["func"], order=5)
+                }
+                
+                # 使用系统泰勒求解器
+                for name, solver in system_solvers.items():
+                    try:
+                        start_time = time.time()
+                        t, y = solver.solve(problem["t_span"], problem["y0"], tol=tol)
+                        solve_time = time.time() - start_time
+                        
+                        # 记录结果
+                        results_for_tol[f'{name}_时间'] = f"{solve_time:.4f}"
+                        results_for_tol[f'{name}_步数'] = len(t)
+                        results_for_tol[f'{name}_误差'] = 'N/A'  # 系统ODE无法直接计算误差
+                        
+                        # 绘制解
+                        axes[tol_idx, 0].plot(t, y[:, 0], '-', label=f"{name}")
+                    
+                    except Exception as e:
+                        print(f"      {name} 失败: {e}")
+                        results_for_tol[f'{name}_时间'] = 'Error'
+                        results_for_tol[f'{name}_步数'] = 'Error'
+                        results_for_tol[f'{name}_误差'] = 'Error'
+            
             # 绘制精确解（如果有）
             if problem["exact"] is not None:
                 t_exact = np.linspace(problem["t_span"][0], problem["t_span"][1], 1000)
@@ -472,34 +527,50 @@ def compare_taylor_with_other_methods():
     return results_df
 
 def solve_van_der_pol(problem, tol):
-    """专门处理Van der Pol方程的求解"""
+    """改进的Van der Pol方程求解方法"""
     print(f"使用专用方法求解Van der Pol方程，容限={tol}")
     
-    # 定义方程
+    # 定义方程时使用兼容函数
     def van_der_pol(t, y):
-        return [y[1], (1 - y[0]**2) * y[1] - y[0]]
+        """Van der Pol方程，确保数组形状正确处理"""
+        # 确保y是正确的数组格式
+        y_array = np.asarray(y)
+        if y_array.ndim == 1:
+            return np.array([y_array[1], (1 - y_array[0]**2) * y_array[1] - y_array[0]])
+        else:
+            # 批处理模式
+            return np.array([y_array[:, 1], (1 - y_array[:, 0]**2) * y_array[:, 1] - y_array[:, 0]]).T
     
-    # 直接使用scipy的solve_ivp
+    # 使用scipy的solve_ivp
     from scipy.integrate import solve_ivp
-    sol = solve_ivp(
-        van_der_pol, 
-        problem["t_span"], 
-        problem["y0"], 
-        method='RK45', 
-        rtol=tol, 
-        atol=tol,
-        dense_output=True
-    )
     
-    # 创建结果数据
-    results = {}
+    # 完善结果收集
+    results = {
+        '问题': 'Van der Pol',
+        '容限': tol
+    }
     
-    # 记录RK45方法的结果
-    results["RK45_时间"] = sol.nfev / 1000.0  # 简化的时间计算
-    results["RK45_步数"] = len(sol.t)
-    results["RK45_误差"] = "N/A"  # 无精确解
+    # 尝试使用RK45方法
+    try:
+        sol_rk45 = solve_ivp(
+            van_der_pol, 
+            problem["t_span"], 
+            problem["y0"], 
+            method='RK45', 
+            rtol=tol, 
+            atol=tol,
+            dense_output=True
+        )
+        results["RK45_时间"] = sol_rk45.nfev / 1000.0
+        results["RK45_步数"] = len(sol_rk45.t)
+        results["RK45_误差"] = "N/A"  # 无解析解
+    except Exception as e:
+        print(f"RK45求解失败: {e}")
+        results["RK45_时间"] = "Error"
+        results["RK45_步数"] = "Error"
+        results["RK45_误差"] = "Error"
     
-    # 尝试其他方法
+    # 尝试使用Radau方法
     try:
         sol_radau = solve_ivp(
             van_der_pol, 
@@ -512,7 +583,8 @@ def solve_van_der_pol(problem, tol):
         results["Radau_时间"] = sol_radau.nfev / 1000.0
         results["Radau_步数"] = len(sol_radau.t)
         results["Radau_误差"] = "N/A"
-    except:
+    except Exception as e:
+        print(f"Radau求解失败: {e}")
         results["Radau_时间"] = "Error"
         results["Radau_步数"] = "Error"
         results["Radau_误差"] = "Error"

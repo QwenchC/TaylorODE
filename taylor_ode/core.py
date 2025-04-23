@@ -3,6 +3,7 @@ from sympy import symbols, diff, lambdify
 import matplotlib.pyplot as plt
 from numba import jit
 from scipy.special import factorial  # 添加这行导入factorial函数
+from taylor_ode.math_compat import compatible_sin, compatible_cos, compatible_exp
 
 class TaylorODESolver:
     """基于泰勒展开的ODE求解器"""
@@ -49,6 +50,27 @@ class TaylorODESolver:
                 current_expr = self.f(t, y)
                 self.symbolic_derivatives.append(current_expr)  # y^(1) = f(t, y)
                 self.derivative_funcs.append(lambda t, y: self.f(t, y))  # 确保第1阶导数函数可用
+                
+                # 获取ODE函数
+                f_expr = self.f(t, y)
+                
+                # 如果函数内部使用了numpy的sin而非compatible_sin，可以尝试替换
+                # 这是一个高级技巧，可能需要根据实际情况调整
+                if 'sin' in str(f_expr) or 'cos' in str(f_expr) or 'exp' in str(f_expr):
+                    import numpy as np
+                    # 替换numpy函数为sympy函数
+                    if hasattr(np, 'sin'):
+                        original_np_sin = np.sin
+                        np.sin = compatible_sin
+                    # 类似地替换其他函数...
+                    
+                    # 重新计算表达式
+                    f_expr = self.f(t, y)
+                    
+                    # 恢复原始numpy函数
+                    if hasattr(np, 'sin'):
+                        np.sin = original_np_sin
+                    # 恢复其他函数...
                 
                 # 计算高阶导数
                 for k in range(2, self.order + 2):
