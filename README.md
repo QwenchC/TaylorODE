@@ -1,4 +1,4 @@
-# TaylorODE - 基于泰勒展开的微分方程高精度解法
+# TaylorODE - 基于泰勒展开的微分方程高精度解法（对应毕业设计论文《泰勒公式及其在近似计算中的应用拓展》的第5章）
 
 [![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
 [![NumPy](https://img.shields.io/badge/NumPy-1.20+-green.svg)](https://numpy.org/)
