@@ -98,18 +98,15 @@ TaylorODE/
 └── tests/              # 测试代码
 ```
 
-## 引用
-
-如果您在研究中使用了TaylorODE，请引用：
+## 运行
 
 ```
-@misc{TaylorODE2025,
-  author = {Your Name},
-  title = {TaylorODE: High-precision ODE solver based on Taylor series expansion},
-  year = {2025},
-  publisher = {GitHub},
-  url = {https://github.com/yourusername/TaylorODE}
-}
+# 基础 ODE 求解/泰勒展开与传统方法性能对比/高级用法模式/泰勒展开评估模式/卫星轨道预测演示
+python examples/simple_ode.py
+python examples/compare.py
+python examples/advanced_usage.py
+python examples/evaluate_taylor.py
+python examples/orbital.py
 ```
 
 ## 许可证
